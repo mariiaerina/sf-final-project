@@ -307,3 +307,181 @@ SELECT
 	round(CAST(avg(tests_started_before_purchase) AS NUMERIC), 2) AS avg_tests_started_before_purchase
 FROM user_initial_activity ;
 ```
+
+# Дополнительное задание 2
+
+```sql
+
+-- Активность пользователей
+WITH combined_activity AS (
+	SELECT
+		user_id,
+		created_at,
+		'run' AS activity_type,
+		EXTRACT(ISODOW FROM created_at) AS day_of_week,
+		EXTRACT(HOUR FROM created_at) AS hour_of_day
+	FROM coderun
+	UNION ALL 
+	SELECT
+		user_id,
+		created_at,
+		'submit' AS activity_type,
+		EXTRACT(ISODOW FROM created_at) AS day_of_week,
+		EXTRACT(HOUR FROM created_at) AS hour_of_day
+	FROM codesubmit
+	UNION ALL 
+	SELECT
+		user_id,
+		created_at,
+		'test' AS activity_type,
+		EXTRACT(ISODOW FROM created_at) AS day_of_week,
+		EXTRACT(HOUR FROM created_at) AS hour_of_day
+	FROM teststart
+	UNION ALL 
+	SELECT
+		user_id,
+		entry_at AS created_at,
+		'login' AS activity_type,
+		EXTRACT(ISODOW FROM entry_at) AS day_of_week,
+		EXTRACT(HOUR FROM entry_at) AS hour_of_day
+		FROM userentry
+)
+SELECT 
+	date(created_at) AS activity_date,
+	day_of_week,
+	hour_of_day,
+	activity_type,
+	count(*) AS activity_count,
+	count(DISTINCT user_id) AS unique_users,
+	CASE
+		day_of_week
+		WHEN 1 THEN 'Понедельник'
+		WHEN 2 THEN 'Вторник'
+		WHEN 3 THEN 'Среда'
+		WHEN 4 THEN 'Четверг'
+		WHEN 5 THEN 'Пятница'
+		WHEN 6 THEN 'Суббота'
+		WHEN 7 THEN 'Воскресенье'
+	END AS day_name,
+	lpad(hour_of_day::text, 2, '0') || ':00' AS time_slot
+FROM combined_activity
+GROUP BY date(created_at), day_of_week, hour_of_day, activity_type
+ORDER BY activity_date, hour_of_day ;
+```
+
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+import seaborn as sns
+
+data = pd.read_csv(r'C:\Users\marii\Downloads\activity_data.csv', delimiter=';', encoding='1251')
+
+daily_activity = (
+    data.groupby(['day_name', 'day_of_week'])
+    .agg({'activity_count': 'sum'})
+    .reset_index()
+    .sort_values('day_of_week')
+)
+plt.figure(figsize=(12, 6))
+sns.barplot(
+    data=daily_activity,
+    x='day_name',
+    y='activity_count'
+)
+plt.title('Активность пользователей по дням недели')
+plt.xlabel('День недели')
+plt.ylabel('Количество активностей')
+plt.xticks(rotation=45)
+plt.tight_layout()
+plt.show()
+
+hourly_activity = (
+    data.groupby('hour_of_day')
+    .agg({'activity_count': 'sum'})
+    .reset_index()
+    .sort_values('hour_of_day'))
+
+plt.figure(figsize=(12, 6))
+sns.lineplot(
+    data=hourly_activity,
+    x='hour_of_day',
+    y='activity_count',
+    marker='o')
+plt.title('Активность пользователей по времени суток')
+plt.xlabel('Час дня')
+plt.ylabel('Количество активностей')
+plt.xticks(range(0, 24, 2))
+plt.grid(True, alpha=0.3)
+plt.tight_layout()
+plt.show()
+
+heatmap_data = (
+    data.groupby(['day_name', 'hour_of_day'])
+    .agg({'activity_count': 'sum'})
+    .reset_index()
+)
+
+day_order = [
+    'Понедельник', 'Вторник', 'Среда',
+    'Четверг', 'Пятница', 'Суббота', 'Воскресенье'
+]
+
+heatmap_data['day_name'] = pd.Categorical(
+    heatmap_data['day_name'],
+    categories=day_order,
+    ordered=True
+)
+
+heatmap_data = heatmap_data.sort_values(['day_name', 'hour_of_day'])
+
+heatmap_pivot = heatmap_data.pivot(
+    index='day_name',
+    columns='hour_of_day',
+    values='activity_count'
+)
+
+plt.figure(figsize=(14, 8))
+sns.heatmap(
+    data=heatmap_pivot,
+    cmap='YlOrRd',
+    annot=False
+)
+plt.title('Тепловая карта активности: День недели × Время суток')
+plt.xlabel('Час дня')
+plt.ylabel('День недели')
+plt.tight_layout()
+plt.show()
+
+quiet_periods = (
+    data.groupby(['day_name', 'hour_of_day'])
+    .agg({'activity_count': 'mean'})
+    .reset_index()
+    .nsmallest(5, 'activity_count')
+)
+
+print('Подходящие периоды для релизов (наименьшая активность среди пользователей)')
+for idx, row in quiet_periods.iterrows():
+    print(f'{row['day_name']}, {row['hour_of_day']:02d}:00 - {row['activity_count']:.0f} активностей')
+
+busy_periods = (
+    data.groupby(['day_name', 'hour_of_day'])
+    .agg({'activity_count': 'mean'})
+    .reset_index()
+    .nlargest(5, 'activity_count')
+)
+
+print('Периоды высокой активности (релизов лучше избегать)')
+for idx, row in busy_periods.iterrows():
+    print(f'{row['day_name']}, {row['hour_of_day']:02d}:00 - {row['activity_count']:.0f} активностей')
+```
+
+Графики:
+
+<img width="1190" height="590" alt="image" src="https://github.com/user-attachments/assets/f1f14df7-ab10-47ce-9a6e-2f36511de52a" />
+<img width="1190" height="590" alt="image" src="https://github.com/user-attachments/assets/7f155ae2-17c9-40da-b95b-0c1d0f4b10c2" />
+<img width="1271" height="790" alt="image" src="https://github.com/user-attachments/assets/bf7e9bec-5e4b-4bc6-be0b-33e612036d2a" />
+
+Выводы:
+
+Наиболее подходящими периодами для релизов являются ночные и ранние утренние часы, т.к. в это время активность пользователей на платформе снижена.
+Однозначно следует выпускать обновления в будние дни с 10:00 до 14:00 и с 18:00 до 20:00, поскольку на эти часы приходится самый пик активности.
